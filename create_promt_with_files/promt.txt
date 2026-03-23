@@ -1,0 +1,2317 @@
+================================================================================
+ФАЙЛ: ../existing_articles_service.py
+================================================================================
+import json
+import os
+from datetime import datetime, timezone
+
+from connections.mongo_connection import get_blog_articles_collection
+
+
+OUTPUT_DIR = "generated_articles/source_data"
+OUTPUT_FILE = "existing_articles.json"
+
+
+def ensure_output_dir():
+    """Создает папку для локального сохранения, если ее нет."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def get_existing_articles():
+    """
+    Возвращает список существующих статей из MongoDB.
+    Берет только нужные поля для дальнейшей генерации контента.
+    """
+    collection = get_blog_articles_collection()
+
+    if collection is None:
+        print("Не удалось получить коллекцию статей.")
+        return []
+
+    try:
+        cursor = collection.find(
+            {
+                "lang": "en-US",
+                "status": "published"
+            },
+            {
+                "_id": 0,
+                "title": 1,
+                "url_slug": 1,
+                "seo_title": 1,
+                "seo_description": 1,
+                "short_description": 1,
+                "lang": 1,
+                "status": 1
+            }
+        )
+
+        articles = []
+        for doc in cursor:
+            articles.append({
+                "title": doc.get("title", "").strip(),
+                "url_slug": doc.get("url_slug", "").strip(),
+                "seo_title": doc.get("seo_title", "").strip(),
+                "seo_description": doc.get("seo_description", "").strip(),
+                "short_description": doc.get("short_description", "").strip(),
+                "lang": doc.get("lang", "").strip(),
+                "status": doc.get("status", "").strip()
+            })
+
+        return articles
+
+    except Exception as e:
+        print(f"Ошибка при получении статей из MongoDB: {e}")
+        return []
+
+
+def get_existing_article_titles():
+    """
+    Возвращает только список заголовков существующих статей.
+    """
+    articles = get_existing_articles()
+    return [article["title"] for article in articles if article.get("title")]
+
+
+def save_existing_articles_locally(articles):
+    """
+    Сохраняет snapshot существующих статей локально в JSON.
+    """
+    ensure_output_dir()
+
+    payload = {
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "total_articles": len(articles),
+        "articles": articles
+    }
+
+    output_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
+
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        print("Список существующих статей сохранен локально.")
+        print(f"Файл: {output_path}")
+        return output_path
+
+    except Exception as e:
+        print(f"Ошибка при сохранении JSON-файла: {e}")
+        return None
+
+
+def print_existing_articles_preview(limit=20):
+    """
+    Печатает краткий preview существующих статей.
+    """
+    articles = get_existing_articles()
+
+    print(f"Найдено published en-US статей: {len(articles)}")
+
+    for i, article in enumerate(articles[:limit], start=1):
+        print(f"{i}. {article['title']} | slug: {article['url_slug']}")
+
+
+def main():
+    articles = get_existing_articles()
+
+    if not articles:
+        print("Не удалось получить статьи или список пуст.")
+        return
+
+    print_existing_articles_preview(limit=20)
+    save_existing_articles_locally(articles)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+ФАЙЛ: ../topic_generator.py
+================================================================================
+import json
+import os
+from datetime import datetime, timezone
+
+from connections.novita_connection import get_novita_client
+from config import novita
+
+
+INPUT_FILE = "generated_articles/source_data/existing_articles.json"
+OUTPUT_DIR = "generated_articles/topic_generation"
+OUTPUT_FILE = "latest_topic.json"
+
+
+def ensure_output_dir():
+    """Создает папку для локального сохранения, если ее нет."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def load_existing_articles():
+    """
+    Загружает локальный snapshot существующих статей из JSON.
+    """
+    if not os.path.exists(INPUT_FILE):
+        print(f"Файл не найден: {INPUT_FILE}")
+        return []
+
+    try:
+        with open(INPUT_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        articles = data.get("articles", [])
+        return articles
+
+    except Exception as e:
+        print(f"Ошибка при загрузке existing_articles.json: {e}")
+        return []
+
+
+def build_existing_articles_context(existing_articles, limit=200):
+    """
+    Формирует компактный контекст по существующим статьям.
+    Берем title, slug, seo_title и seo_description.
+    """
+    context_blocks = []
+
+    for article in existing_articles[:limit]:
+        title = article.get("title", "").strip()
+        slug = article.get("url_slug", "").strip()
+        seo_title = article.get("seo_title", "").strip()
+        seo_description = article.get("seo_description", "").strip()
+        short_description = article.get("short_description", "").strip()
+
+        block = (
+            f"- Title: {title}\n"
+            f"  Slug: {slug}\n"
+            f"  SEO Title: {seo_title}\n"
+            f"  SEO Description: {seo_description}\n"
+            f"  Short Description: {short_description}"
+        )
+        context_blocks.append(block)
+
+    return "\n".join(context_blocks)
+
+
+def build_topic_generation_prompt(existing_articles):
+    """
+    Формирует prompt для генерации новой темы статьи.
+    """
+    existing_context = build_existing_articles_context(existing_articles)
+
+    prompt = f"""
+You are an expert startup content strategist for a blog focused on:
+startup fundraising, investor discovery, VC outreach, angel investors, pitch decks, startup valuation, and how founders find investors.
+
+Your task:
+Propose ONE new article topic in English for this blog.
+
+Requirements:
+1. The topic must be highly relevant to startup founders looking for investors.
+2. The topic must NOT duplicate or be too similar to existing articles.
+3. The topic should be practical, useful, and SEO-friendly.
+4. The topic should be specific enough to become a strong long-form article.
+5. The topic should fit naturally into this blog's existing editorial style.
+6. Avoid generic topics that have likely already been covered many times.
+7. Prefer topics with strong search intent and practical founder value.
+8. Return valid JSON only.
+9. Language must be English.
+10. The proposed title should be original, clear, and suitable for an SEO article.
+11. The proposed slug must be unique compared to the existing slugs.
+12. short_description_candidate must be 1 to 2 short sentences and under 150 characters.
+
+Existing articles:
+{existing_context}
+
+Return JSON in exactly this format:
+{{
+  "title_candidate": "string",
+  "slug_candidate": "string",
+  "reasoning_summary": "string",
+  "short_description_candidate": "string",
+  "search_intent": "string",
+  "target_audience": "string",
+  "primary_keyword": "string",
+  "secondary_keywords": ["string", "string", "string"],
+  "seo_angle": "string"
+}}
+"""
+    return prompt.strip()
+
+
+def generate_new_topic():
+    """
+    Генерирует новую тему статьи через Novita.
+    Возвращает dict или None.
+    """
+    existing_articles = load_existing_articles()
+
+    if not existing_articles:
+        print("Список существующих статей пуст или недоступен.")
+        return None
+
+    prompt = build_topic_generation_prompt(existing_articles)
+
+    try:
+        client = get_novita_client()
+
+        response = client.chat.completions.create(
+            model=novita["model"],
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a precise content strategist and SEO planner. "
+                        "Return valid JSON only. Do not include markdown fences."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.7,
+            max_tokens=900,
+            response_format={"type": "json_object"}
+        )
+
+        raw_content = response.choices[0].message.content
+        topic_data = json.loads(raw_content)
+
+        return topic_data
+
+    except Exception as e:
+        print(f"Ошибка при генерации новой темы: {e}")
+        return None
+
+
+def save_topic_locally(topic_data, source_articles_count):
+    """
+    Сохраняет результат генерации темы локально в JSON.
+    """
+    ensure_output_dir()
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    payload = {
+        "generated_at": now_iso,
+        "provider": "novita",
+        "model": novita["model"],
+        "source_snapshot_file": INPUT_FILE,
+        "source_articles_count": source_articles_count,
+        "topic_data": topic_data
+    }
+
+    output_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
+
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        print("Новая тема успешно сгенерирована и сохранена локально.")
+        print(f"Файл: {output_path}")
+        print("Сгенерированная тема:")
+        print(json.dumps(topic_data, ensure_ascii=False, indent=2))
+
+        return output_path
+
+    except Exception as e:
+        print(f"Ошибка при сохранении темы локально: {e}")
+        return None
+
+
+def main():
+    existing_articles = load_existing_articles()
+
+    if not existing_articles:
+        print("Не удалось загрузить existing_articles.json.")
+        return
+
+    print(f"Загружено существующих статей из snapshot: {len(existing_articles)}")
+
+    topic_data = generate_new_topic()
+
+    if topic_data is None:
+        print("Не удалось сгенерировать новую тему.")
+        return
+
+    save_topic_locally(topic_data, source_articles_count=len(existing_articles))
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+ФАЙЛ: ../article_generator.py
+================================================================================
+import json
+import os
+import re
+from datetime import datetime, timezone
+
+from connections.novita_connection import get_novita_client
+from config import novita
+
+
+TOPIC_FILE = "generated_articles/topic_generation/latest_topic.json"
+BASE_OUTPUT_DIR = "generated_articles/en"
+
+
+def load_json_file(file_path):
+    """Загружает JSON-файл и возвращает dict."""
+    if not os.path.exists(file_path):
+        print(f"Файл не найден: {file_path}")
+        return None
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Ошибка при чтении JSON-файла {file_path}: {e}")
+        return None
+
+
+def ensure_article_output_dir(slug):
+    """Создает папку статьи по slug."""
+    article_dir = os.path.join(BASE_OUTPUT_DIR, slug)
+    os.makedirs(article_dir, exist_ok=True)
+    return article_dir
+
+
+def normalize_slug(slug: str) -> str:
+    """Нормализует slug на случай странных символов."""
+    slug = (slug or "").strip().lower()
+    slug = re.sub(r"[^a-z0-9 -]", "", slug)
+    slug = slug.replace(" ", "-")
+    slug = re.sub(r"-{2,}", "-", slug)
+    slug = slug.strip("-")
+    return slug
+
+def normalize_short_description(text: str, max_chars: int = 150) -> str:
+    """
+    Приводит short_description к короткому формату:
+    - максимум 2 предложения
+    - максимум max_chars символов
+    - без лишних пробелов
+    """
+    if not text:
+        return ""
+
+    text = " ".join(str(text).strip().split())
+
+    if not text:
+        return ""
+
+    import re
+
+    # Делим на предложения по ., !, ?
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+
+    # Берем максимум 2 предложения
+    short_text = " ".join(sentences[:2]).strip()
+
+    # Если после разбиения текст без финальной точки и был одним предложением
+    if short_text and short_text[-1] not in ".!?":
+        short_text += "."
+
+    # Ограничиваем длину
+    if len(short_text) > max_chars:
+        truncated = short_text[:max_chars].rstrip()
+
+        # Пытаемся обрезать по последнему пробелу, чтобы не ломать слово
+        last_space = truncated.rfind(" ")
+        if last_space > 80:
+            truncated = truncated[:last_space]
+
+        short_text = truncated.rstrip(" ,;:-") + "."
+
+    return short_text
+
+def clean_generated_text(text: str) -> str:
+    """
+    Чистит типичный мусор модели:
+    - [1], [12], [L34-L40]
+    - markdown fences
+    - битую типографику / mojibake
+    - лишние пробелы
+    """
+    if not text:
+        return ""
+
+    replacements = {
+        "â€™": "'",
+        "â€œ": '"',
+        "â€": '"',
+        "â€“": "–",
+        "â€”": "—",
+        "â€¦": "...",
+        "Â": "",
+    }
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+
+    text = text.strip()
+
+    if text.startswith("```mdx"):
+        text = text[len("```mdx"):].strip()
+    elif text.startswith("```markdown"):
+        text = text[len("```markdown"):].strip()
+    elif text.startswith("```md"):
+        text = text[len("```md"):].strip()
+    elif text.startswith("```"):
+        text = text[len("```"):].strip()
+
+    if text.endswith("```"):
+        text = text[:-3].strip()
+
+    text = re.sub(r"\[\d+\]", "", text)
+    text = re.sub(r"\[L\d+(?:-L?\d+)?\]", "", text)
+    text = re.sub(r"【[^】]+】", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+
+    return text.strip()
+
+
+def build_article_body_prompt(topic_data):
+    """
+    Формирует prompt только для body статьи.
+    Все мета-данные берем из latest_topic.json и не просим модель генерировать их заново.
+    """
+    title_candidate = topic_data.get("title_candidate", "").strip()
+    slug_candidate = topic_data.get("slug_candidate", "").strip()
+    reasoning_summary = topic_data.get("reasoning_summary", "").strip()
+    search_intent = topic_data.get("search_intent", "").strip()
+    target_audience = topic_data.get("target_audience", "").strip()
+    primary_keyword = topic_data.get("primary_keyword", "").strip()
+    secondary_keywords = topic_data.get("secondary_keywords", [])
+    seo_angle = topic_data.get("seo_angle", "").strip()
+
+    secondary_keywords_text = ", ".join(secondary_keywords)
+
+    prompt = f"""
+You are a senior B2B startup content writer and SEO editor.
+
+Write only the BODY of a publication-ready MDX/Markdown article in English for a blog focused on startup fundraising, investor discovery, VC outreach, angel investors, and founder education.
+
+Topic data:
+- Title: {title_candidate}
+- Slug: {slug_candidate}
+- Reasoning summary: {reasoning_summary}
+- Search intent: {search_intent}
+- Target audience: {target_audience}
+- Primary keyword: {primary_keyword}
+- Secondary keywords: {secondary_keywords_text}
+- SEO angle: {seo_angle}
+
+Important:
+1. Do NOT generate YAML frontmatter.
+2. Do NOT generate title at the top.
+3. Do NOT generate slug.
+4. Do NOT generate meta description.
+5. Return only the article body.
+6. Output must be valid, clean Markdown/MDX.
+7. Do not wrap the response in triple backticks.
+
+Content requirements:
+1. Start with a strong introduction of 2 to 4 paragraphs.
+2. Include 5 to 7 H2 sections using "## ".
+3. Use short readable paragraphs.
+4. Use bullet lists where they help readability.
+5. Include practical advice for startup founders.
+6. Use the primary keyword naturally in the introduction, at least one H2 heading, and body.
+7. Use the secondary keywords naturally without stuffing.
+8. Add a section "## FAQ".
+9. Under FAQ include exactly 3 H3 questions using "### ".
+10. Add a final section called "## Further reading".
+11. Under "Further reading", include 3 to 5 real markdown links to external sources.
+12. Do not output raw citation markers like [1], [2], [L10-L20], or placeholders.
+13. Do not invent fake statistics.
+14. Do not use tables.
+15. Avoid HTML unless absolutely necessary.
+16. Keep formatting clean and publication-ready.
+17. Separate paragraphs with blank lines.
+
+Return only the article body.
+"""
+    return prompt.strip()
+
+
+def generate_article_body(topic_data):
+    """
+    Генерирует только body статьи через Novita.
+    """
+    prompt = build_article_body_prompt(topic_data)
+
+    try:
+        client = get_novita_client()
+
+        response = client.chat.completions.create(
+            model=novita["model"],
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a precise long-form startup content writer and SEO editor. "
+                        "Return only clean article body in Markdown/MDX. "
+                        "Do not include YAML frontmatter. "
+                        "Do not include markdown fences."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.5,
+            max_tokens=5000
+        )
+
+        raw_content = response.choices[0].message.content
+
+        print("RAW CONTENT PREVIEW:")
+        print(repr(raw_content[:700] if raw_content else raw_content))
+
+        if not raw_content or not str(raw_content).strip():
+            print("Модель вернула пустой content.")
+            print("FULL RESPONSE:")
+            print(response)
+            return None
+
+        article_body = clean_generated_text(raw_content)
+        return article_body
+
+    except Exception as e:
+        print(f"Ошибка при генерации body статьи: {e}")
+        if "response" in locals():
+            print("FULL RESPONSE:")
+            print(response)
+        return None
+
+
+def validate_article_body(article_body: str):
+    """
+    Базовая проверка структуры body.
+    """
+    errors = []
+
+    if not article_body or len(article_body.strip()) < 800:
+        errors.append("Текст статьи слишком короткий или пустой.")
+
+    h2_count = len(re.findall(r"^## ", article_body, flags=re.MULTILINE))
+    if h2_count < 5:
+        errors.append(f"Слишком мало H2 секций: {h2_count}")
+
+    if "## FAQ" not in article_body:
+        errors.append("Отсутствует секция FAQ.")
+
+    faq_h3_count = len(re.findall(r"^### ", article_body, flags=re.MULTILINE))
+    if faq_h3_count < 3:
+        errors.append(f"Слишком мало FAQ вопросов: {faq_h3_count}")
+
+    if "## Further reading" not in article_body:
+        errors.append("Отсутствует секция Further reading.")
+
+    link_count = len(re.findall(r"\[.*?\]\(https?://.*?\)", article_body))
+    if link_count < 3:
+        errors.append(f"Слишком мало внешних ссылок: {link_count}")
+
+    return errors
+
+
+def yaml_escape(value: str) -> str:
+    """
+    Безопасно экранирует строку для YAML frontmatter.
+    """
+    value = (value or "").replace("\\", "\\\\").replace('"', '\\"')
+    return value
+
+
+def build_frontmatter(topic_data):
+    """
+    Собирает frontmatter ИСКЛЮЧИТЕЛЬНО из latest_topic.json.
+    Ничего не берем из ответа модели.
+    """
+    title = (topic_data.get("title_candidate") or "").strip()
+    slug = normalize_slug(topic_data.get("slug_candidate") or "")
+    primary_keyword = (topic_data.get("primary_keyword") or "").strip()
+    secondary_keywords = topic_data.get("secondary_keywords") or []
+    publish_date = datetime.now(timezone.utc).isoformat()
+
+    seo_title = title
+    seo_description = (topic_data.get("seo_angle") or "").strip()
+    short_description = normalize_short_description(
+        topic_data.get("short_description_candidate")
+        or topic_data.get("reasoning_summary")
+        or ""
+    )
+
+    lines = [
+        "---",
+        f'title: "{yaml_escape(title)}"',
+        f'slug: "{yaml_escape(slug)}"',
+        f'seo_title: "{yaml_escape(seo_title)}"',
+        f'seo_description: "{yaml_escape(seo_description)}"',
+        f'short_description: "{yaml_escape(short_description)}"',
+        'lang: "en-US"',
+        'status: "draft"',
+        f'publish_date: "{yaml_escape(publish_date)}"',
+        f'primary_keyword: "{yaml_escape(primary_keyword)}"',
+        "secondary_keywords:"
+    ]
+
+    for keyword in secondary_keywords:
+        lines.append(f'  - "{yaml_escape(str(keyword).strip())}"')
+
+    lines.append("---")
+
+    return "\n".join(lines)
+
+
+def build_final_mdx(topic_data, article_body: str):
+    """
+    Собирает итоговый article.mdx:
+    frontmatter из latest_topic.json + body от модели.
+    """
+    frontmatter = build_frontmatter(topic_data)
+    article_body = article_body.strip()
+    return f"{frontmatter}\n\n{article_body}\n"
+
+
+def build_article_meta(topic_data):
+    """
+    Мета-данные статьи на основе latest_topic.json.
+    """
+    title = (topic_data.get("title_candidate") or "").strip()
+    slug = normalize_slug(topic_data.get("slug_candidate") or "")
+    primary_keyword = (topic_data.get("primary_keyword") or "").strip()
+
+    return {
+        "title": title,
+        "url_slug": slug,
+        "short_description": normalize_short_description(
+        topic_data.get("short_description_candidate")
+        or topic_data.get("reasoning_summary")
+        or ""
+        ),
+        "seo_title": title,
+        "seo_description": (topic_data.get("seo_angle") or "").strip(),
+        "lang": "en-US",
+        "status": "draft",
+        "publish_date": datetime.now(timezone.utc).isoformat(),
+        "primary_keyword": primary_keyword,
+        "secondary_keywords": topic_data.get("secondary_keywords", [])
+    }
+
+
+def build_article_record(meta):
+    """
+    Строит краткий внутренний record-файл для локального учета.
+    """
+    slug = meta["url_slug"]
+
+    return {
+        "title": meta.get("title", ""),
+        "url_slug": slug,
+        "content_url": "",
+        "publish_date": meta.get("publish_date", ""),
+        "alternative_urls": [""],
+        "short_description": meta.get("short_description", ""),
+        "seo_title": meta.get("seo_title", ""),
+        "seo_description": meta.get("seo_description", ""),
+        "img_url": "",
+        "status": meta.get("status", "draft"),
+        "lang": meta.get("lang", "en-US"),
+        "internal_meta": {
+            "provider": "novita",
+            "model": novita["model"],
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "local_article_dir": f"generated_articles/en/{slug}"
+        }
+    }
+
+
+def save_article_files(topic_data, article_body):
+    """
+    Сохраняет article.mdx, article_meta.json и article_record.json.
+    """
+    meta = build_article_meta(topic_data)
+    slug = meta["url_slug"]
+
+    if not slug:
+        print("У статьи отсутствует корректный slug.")
+        return None
+
+    article_dir = ensure_article_output_dir(slug)
+
+    article_mdx_path = os.path.join(article_dir, "article.mdx")
+    article_meta_path = os.path.join(article_dir, "article_meta.json")
+    article_record_path = os.path.join(article_dir, "article_record.json")
+
+    final_mdx = build_final_mdx(topic_data, article_body)
+    article_record = build_article_record(meta)
+
+    try:
+        with open(article_mdx_path, "w", encoding="utf-8") as f:
+            f.write(final_mdx)
+
+        with open(article_meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+
+        with open(article_record_path, "w", encoding="utf-8") as f:
+            json.dump(article_record, f, ensure_ascii=False, indent=2)
+
+        print("Статья успешно сгенерирована и сохранена локально.")
+        print(f"Папка статьи: {article_dir}")
+        print(f"article.mdx: {article_mdx_path}")
+        print(f"article_meta.json: {article_meta_path}")
+        print(f"article_record.json: {article_record_path}")
+
+        return article_dir
+
+    except Exception as e:
+        print(f"Ошибка при сохранении файлов статьи: {e}")
+        return None
+
+
+def main():
+    topic_payload = load_json_file(TOPIC_FILE)
+
+    if topic_payload is None:
+        print("Не удалось загрузить latest_topic.json.")
+        return
+
+    topic_data = topic_payload.get("topic_data")
+
+    if not topic_data:
+        print("В latest_topic.json отсутствует topic_data.")
+        return
+
+    required_fields = [
+        "title_candidate",
+        "slug_candidate",
+        "reasoning_summary",
+        "search_intent",
+        "target_audience",
+        "primary_keyword",
+        "secondary_keywords",
+        "seo_angle",
+    ]
+
+    missing_fields = [field for field in required_fields if field not in topic_data or topic_data.get(field) in [None, ""]]
+    if missing_fields:
+        print("В topic_data отсутствуют обязательные поля:")
+        for field in missing_fields:
+            print(f"- {field}")
+        return
+
+    article_body = generate_article_body(topic_data)
+
+    if article_body is None:
+        print("Не удалось сгенерировать body статьи.")
+        return
+
+    validation_errors = validate_article_body(article_body)
+    if validation_errors:
+        print("Статья сгенерирована, но есть замечания по структуре:")
+        for err in validation_errors:
+            print(f"- {err}")
+
+    save_article_files(topic_data, article_body)
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+ФАЙЛ: ../fix_latest_article_mdx.py
+================================================================================
+import json
+import os
+import re
+from pathlib import Path
+from typing import Optional, Tuple
+
+
+BASE_OUTPUT_DIR = Path("generated_articles/en")
+
+
+def find_latest_article_meta(base_dir: Path) -> Optional[Path]:
+    """
+    Находит самый свежий article_meta.json по времени модификации.
+    """
+    meta_files = list(base_dir.rglob("article_meta.json"))
+    if not meta_files:
+        return None
+
+    return max(meta_files, key=lambda p: p.stat().st_mtime)
+
+
+def load_json_file(file_path: Path) -> Optional[dict]:
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Ошибка чтения JSON {file_path}: {e}")
+        return None
+
+
+def read_text_file(file_path: Path) -> Optional[str]:
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        print(f"Ошибка чтения файла {file_path}: {e}")
+        return None
+
+
+def write_text_file(file_path: Path, content: str) -> bool:
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return True
+    except Exception as e:
+        print(f"Ошибка записи файла {file_path}: {e}")
+        return False
+
+
+def yaml_escape(value: str) -> str:
+    value = (value or "").replace("\\", "\\\\").replace('"', '\\"')
+    return value
+
+
+def normalize_slug(slug: str) -> str:
+    slug = (slug or "").strip().lower()
+    slug = re.sub(r"[^a-z0-9 -]", "", slug)
+    slug = slug.replace(" ", "-")
+    slug = re.sub(r"-{2,}", "-", slug)
+    slug = slug.strip("-")
+    return slug
+
+
+def clean_mojibake(text: str) -> str:
+    replacements = {
+        "â€™": "'",
+        "â€œ": '"',
+        "â€": '"',
+        "â€“": "–",
+        "â€”": "—",
+        "â€¦": "...",
+        "Â": "",
+    }
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+    return text
+
+
+def strip_markdown_fences(text: str) -> str:
+    text = text.strip()
+
+    if text.startswith("```mdx"):
+        text = text[len("```mdx"):].strip()
+    elif text.startswith("```markdown"):
+        text = text[len("```markdown"):].strip()
+    elif text.startswith("```md"):
+        text = text[len("```md"):].strip()
+    elif text.startswith("```"):
+        text = text[len("```"):].strip()
+
+    if text.endswith("```"):
+        text = text[:-3].strip()
+
+    return text
+
+
+def split_frontmatter_and_body(mdx: str) -> Tuple[Optional[str], str]:
+    """
+    Возвращает (frontmatter, body).
+    Если frontmatter не найден, вернет (None, original_text).
+    """
+    if not mdx.startswith("---\n"):
+        return None, mdx
+
+    match = re.match(r"^---\n(.*?)\n---\n?(.*)$", mdx, flags=re.DOTALL)
+    if not match:
+        return None, mdx
+
+    frontmatter = match.group(1).strip()
+    body = match.group(2).strip()
+    return frontmatter, body
+
+
+def build_frontmatter_from_meta(meta: dict) -> str:
+    title = (meta.get("title") or "").strip()
+    slug = normalize_slug(meta.get("url_slug") or "")
+    seo_title = (meta.get("seo_title") or title).strip()
+    seo_description = (meta.get("seo_description") or "").strip()
+    short_description = (meta.get("short_description") or "").strip()
+    lang = (meta.get("lang") or "en-US").strip()
+    status = (meta.get("status") or "draft").strip()
+    publish_date = (meta.get("publish_date") or "").strip()
+    primary_keyword = (meta.get("primary_keyword") or "").strip()
+    secondary_keywords = meta.get("secondary_keywords") or []
+
+    lines = [
+        "---",
+        f'title: "{yaml_escape(title)}"',
+        f'slug: "{yaml_escape(slug)}"',
+        f'seo_title: "{yaml_escape(seo_title)}"',
+        f'seo_description: "{yaml_escape(seo_description)}"',
+        f'short_description: "{yaml_escape(short_description)}"',
+        f'lang: "{yaml_escape(lang)}"',
+        f'status: "{yaml_escape(status)}"',
+        f'publish_date: "{yaml_escape(publish_date)}"',
+        f'primary_keyword: "{yaml_escape(primary_keyword)}"',
+        "secondary_keywords:",
+    ]
+
+    for keyword in secondary_keywords:
+        lines.append(f'  - "{yaml_escape(str(keyword).strip())}"')
+
+    lines.append("---")
+    return "\n".join(lines)
+
+
+def clean_article_body(body: str) -> str:
+    """
+    Чистит body статьи от типового мусора модели.
+    """
+    if not body:
+        return ""
+
+    body = clean_mojibake(body)
+    body = strip_markdown_fences(body)
+
+    body = re.sub(r"\[\d+\]", "", body)
+    body = re.sub(r"\[L\d+(?:-L?\d+)?\]", "", body)
+    body = re.sub(r"【[^】]+】", "", body)
+
+    lines = body.splitlines()
+
+    # удаляем хвостовые пустые строки
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    # удаляем очевидный мусор в конце
+    trailing_garbage = {"}", "]", ");", "```"}
+    while lines and lines[-1].strip() in trailing_garbage:
+        lines.pop()
+
+    # удаляем одиночные мусорные хвосты
+    while lines and re.fullmatch(r"[}\])>]+", lines[-1].strip()):
+        lines.pop()
+
+    body = "\n".join(lines)
+
+    # нормализация пустых строк
+    body = re.sub(r"\n{3,}", "\n\n", body)
+    body = re.sub(r"[ \t]+\n", "\n", body)
+
+    return body.strip()
+
+
+def validate_mdx(frontmatter: str, body: str) -> list[str]:
+    errors = []
+
+    if frontmatter is not None and not frontmatter.strip():
+        errors.append("Frontmatter пустой.")
+
+    if not body.strip():
+        errors.append("Body статьи пустой.")
+        return errors
+
+    h2_count = len(re.findall(r"^## ", body, flags=re.MULTILINE))
+    faq_h3_count = len(re.findall(r"^### ", body, flags=re.MULTILINE))
+    link_count = len(re.findall(r"\[.*?\]\(https?://.*?\)", body))
+
+    if h2_count < 3:
+        errors.append(f"Слишком мало H2 секций: {h2_count}")
+
+    if "## FAQ" not in body:
+        errors.append("Отсутствует секция FAQ.")
+
+    if faq_h3_count < 3:
+        errors.append(f"Слишком мало H3 FAQ-вопросов: {faq_h3_count}")
+
+    if "## Further reading" not in body:
+        errors.append("Отсутствует секция Further reading.")
+
+    if link_count < 3:
+        errors.append(f"Слишком мало внешних ссылок: {link_count}")
+
+    if body.rstrip().endswith(("}", "]", "```")):
+        errors.append("Body заканчивается лишним служебным символом.")
+
+    return errors
+
+
+def fix_latest_article_mdx() -> None:
+    latest_meta_path = find_latest_article_meta(BASE_OUTPUT_DIR)
+    if latest_meta_path is None:
+        print("Не найден ни один article_meta.json.")
+        return
+
+    print(f"Найден latest article_meta.json: {latest_meta_path}")
+
+    meta = load_json_file(latest_meta_path)
+    if meta is None:
+        print("Не удалось загрузить article_meta.json.")
+        return
+
+    mdx_path = latest_meta_path.parent / "article.mdx"
+    if not mdx_path.exists():
+        print(f"Файл article.mdx не найден: {mdx_path}")
+        return
+
+    original_mdx = read_text_file(mdx_path)
+    if original_mdx is None:
+        print("Не удалось прочитать article.mdx.")
+        return
+
+    old_frontmatter, old_body = split_frontmatter_and_body(original_mdx)
+
+    if old_frontmatter is None:
+        print("Frontmatter не найден. Будет очищено только содержимое статьи.")
+        old_body = original_mdx
+
+    new_body = clean_article_body(old_body)
+    final_mdx = f"{new_body}\n"
+
+    errors = validate_mdx("", new_body)
+
+    changed = final_mdx != original_mdx
+
+    if changed:
+        backup_path = mdx_path.with_suffix(".mdx.bak")
+        if write_text_file(backup_path, original_mdx):
+            print(f"Создан backup: {backup_path}")
+
+        if write_text_file(mdx_path, final_mdx):
+            print(f"article.mdx исправлен: {mdx_path}")
+        else:
+            print("Не удалось записать исправленный article.mdx.")
+            return
+    else:
+        print("Изменения не потребовались: article.mdx уже выглядит нормально.")
+
+    if errors:
+        print("\nЗамечания по структуре MDX:")
+        for err in errors:
+            print(f"- {err}")
+    else:
+        print("\nMDX прошел базовую проверку структуры.")
+
+    print("\nГотово.")
+
+
+if __name__ == "__main__":
+    fix_latest_article_mdx()
+
+
+================================================================================
+ФАЙЛ: ../article_publisher.py
+================================================================================
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+from boto3.session import Session
+from botocore.client import Config
+from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
+
+from config import spaces
+from connections.mongo_connection import get_blog_articles_collection
+
+
+BASE_OUTPUT_DIR = Path("generated_articles/en")
+ARTICLE_META_FILENAME = "article_meta.json"
+ARTICLE_MDX_FILENAME = "article.mdx"
+ARTICLE_RECORD_FILENAME = "article_record.json"
+
+
+def find_latest_article_meta(base_dir: Path) -> Optional[Path]:
+    """
+    Находит самый свежий article_meta.json по времени модификации.
+    """
+    meta_files = list(base_dir.rglob(ARTICLE_META_FILENAME))
+    if not meta_files:
+        return None
+
+    return max(meta_files, key=lambda p: p.stat().st_mtime)
+
+
+def load_json_file(file_path: Path) -> Optional[dict]:
+    """
+    Загружает JSON-файл и возвращает dict.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Ошибка чтения JSON {file_path}: {e}")
+        return None
+
+
+def read_text_file(file_path: Path) -> Optional[str]:
+    """
+    Читает текстовый файл и возвращает его содержимое.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        print(f"Ошибка чтения файла {file_path}: {e}")
+        return None
+
+
+def write_json_file(file_path: Path, payload: dict) -> bool:
+    """
+    Безопасно записывает dict в JSON-файл.
+    """
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"Ошибка записи JSON {file_path}: {e}")
+        return False
+
+
+def get_spaces_client():
+    """
+    Возвращает клиент DigitalOcean Spaces.
+    """
+    session = Session()
+    return session.client(
+        service_name="s3",
+        region_name=spaces["region"],
+        endpoint_url=spaces["endpoint"],
+        aws_access_key_id=spaces["key"],
+        aws_secret_access_key=spaces["secret"],
+        config=Config(signature_version="s3v4"),
+    )
+
+
+def build_spaces_object_key(article_dir: Path) -> str:
+    """
+    Строит путь в DigitalOcean Spaces на основе реальной локальной папки статьи.
+
+    Пример:
+    generated_articles/en/my-article-slug
+    -> blog-articles/en/my-article-slug/index.mdx
+    """
+    storage_lang_dir = article_dir.parent.name.strip()
+    slug = article_dir.name.strip()
+
+    if not storage_lang_dir:
+        raise ValueError("Не удалось определить storage language dir из пути статьи.")
+
+    if not slug:
+        raise ValueError("Не удалось определить slug из пути статьи.")
+
+    return f"blog-articles/{storage_lang_dir}/{slug}/index.mdx"
+
+
+def build_public_urls(object_key: str) -> dict:
+    """
+    Возвращает public URL для объекта.
+    Приоритет:
+    1. spaces['cdn_base_url'] если задан
+    2. стандартный CDN URL bucket.region.cdn.digitaloceanspaces.com
+    3. origin URL
+    """
+    bucket = spaces["bucket"]
+    region = spaces["region"]
+
+    origin_url = f"https://{bucket}.{region}.digitaloceanspaces.com/{object_key}"
+
+    cdn_base_url = str(spaces.get("cdn_base_url", "")).strip()
+    if cdn_base_url:
+        cdn_base_url = cdn_base_url.rstrip("/")
+        cdn_url = f"{cdn_base_url}/{object_key}"
+    else:
+        cdn_url = f"https://{bucket}.{region}.cdn.digitaloceanspaces.com/{object_key}"
+
+    return {
+        "origin_url": origin_url,
+        "cdn_url": cdn_url,
+    }
+
+
+def upload_article_mdx_to_spaces(mdx_content: str, object_key: str) -> Optional[dict]:
+    """
+    Загружает article.mdx в Spaces как index.mdx.
+    Возвращает словарь с URL-ами или None.
+    """
+    bucket = spaces["bucket"]
+    urls = build_public_urls(object_key)
+
+    try:
+        client = get_spaces_client()
+
+        response = client.put_object(
+            Bucket=bucket,
+            Key=object_key,
+            Body=mdx_content.encode("utf-8"),
+            ContentType="text/markdown; charset=utf-8",
+            ACL="public-read",
+        )
+
+        print("MDX-файл успешно загружен в DigitalOcean Spaces.")
+        print(f"Bucket: {bucket}")
+        print(f"Key: {object_key}")
+        print(f"ETag: {response.get('ETag')}")
+        print(f"Origin URL: {urls['origin_url']}")
+        print(f"CDN URL: {urls['cdn_url']}")
+
+        return urls
+
+    except NoCredentialsError:
+        print("Ошибка: отсутствуют credentials для DigitalOcean Spaces.")
+        return None
+
+    except EndpointConnectionError as e:
+        print(f"Ошибка подключения к endpoint DigitalOcean Spaces: {e}")
+        return None
+
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        error_message = e.response.get("Error", {}).get("Message", str(e))
+        print("Не удалось загрузить MDX-файл в Spaces.")
+        print(f"Код ошибки: {error_code}")
+        print(f"Сообщение: {error_message}")
+        return None
+
+    except Exception as e:
+        print(f"Неизвестная ошибка при загрузке файла в Spaces: {e}")
+        return None
+
+
+def delete_object_from_spaces(object_key: str) -> bool:
+    """
+    Удаляет объект из Spaces. Используется для rollback.
+    """
+    bucket = spaces["bucket"]
+
+    try:
+        client = get_spaces_client()
+        client.delete_object(Bucket=bucket, Key=object_key)
+        print(f"Файл удален из Spaces: {object_key}")
+        return True
+
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        error_message = e.response.get("Error", {}).get("Message", str(e))
+        print("Не удалось удалить файл из Spaces во время rollback.")
+        print(f"Код ошибки: {error_code}")
+        print(f"Сообщение: {error_message}")
+        return False
+
+    except Exception as e:
+        print(f"Неизвестная ошибка при удалении файла из Spaces: {e}")
+        return False
+
+
+def get_existing_article_by_slug(slug: str) -> Optional[dict]:
+    """
+    Проверяет в MongoDB, существует ли уже статья с таким slug.
+    """
+    collection = get_blog_articles_collection()
+
+    if collection is None:
+        print("Не удалось получить коллекцию статей.")
+        return None
+
+    try:
+        return collection.find_one(
+            {"url_slug": slug},
+            {"_id": 1, "url_slug": 1, "title": 1, "status": 1, "content_url": 1},
+        )
+    except Exception as e:
+        print(f"Ошибка при проверке slug в MongoDB: {e}")
+        return None
+
+
+def insert_article_to_mongo(document: dict) -> bool:
+    """
+    Добавляет статью в MongoDB.
+    """
+    collection = get_blog_articles_collection()
+
+    if collection is None:
+        print("Не удалось получить коллекцию статей.")
+        return False
+
+    try:
+        result = collection.insert_one(document)
+        print("Статья успешно добавлена в MongoDB.")
+        print(f"Inserted ID: {result.inserted_id}")
+        return True
+    except Exception as e:
+        print(f"Ошибка при вставке статьи в MongoDB: {e}")
+        return False
+
+
+def parse_publish_date(value: Optional[str]) -> datetime:
+    """
+    Преобразует ISO-строку в datetime с timezone.
+    При ошибке возвращает текущее UTC-время.
+    """
+    if not value:
+        return datetime.now(timezone.utc)
+
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return datetime.now(timezone.utc)
+
+
+def build_article_document(meta: dict, content_url: str) -> dict:
+    """
+    Собирает Mongo-документ в формате, который ожидает фронт.
+    """
+    return {
+        "url_slug": str(meta.get("url_slug", "")).strip(),
+        "content_url": content_url,
+        "publish_date": parse_publish_date(meta.get("publish_date")),
+        "alternative_urls": meta.get("alternative_urls", [""]) or [""],
+        "title": str(meta.get("title", "")).strip(),
+        "short_description": str(meta.get("short_description", "")).strip(),
+        "seo_title": str(meta.get("seo_title", "")).strip(),
+        "seo_description": str(meta.get("seo_description", "")).strip(),
+        "img_url": str(meta.get("img_url", "")).strip(),
+        "status": "published",
+        "lang": str(meta.get("lang", "en-US")).strip(),
+    }
+
+
+def update_local_article_files(article_dir: Path, meta: dict, content_url: str, object_key: str) -> None:
+    """
+    Обновляет локальные article_meta.json и article_record.json после успешной публикации.
+    """
+    article_meta_path = article_dir / ARTICLE_META_FILENAME
+    article_record_path = article_dir / ARTICLE_RECORD_FILENAME
+
+    updated_meta = dict(meta)
+    updated_meta["status"] = "published"
+    updated_meta["content_url"] = content_url
+
+    if not updated_meta.get("publish_date"):
+        updated_meta["publish_date"] = datetime.now(timezone.utc).isoformat()
+
+    write_json_file(article_meta_path, updated_meta)
+
+    existing_record = load_json_file(article_record_path) or {}
+
+    updated_record = {
+        "title": updated_meta.get("title", ""),
+        "url_slug": updated_meta.get("url_slug", ""),
+        "content_url": content_url,
+        "publish_date": updated_meta.get("publish_date", ""),
+        "alternative_urls": existing_record.get("alternative_urls", [""]),
+        "short_description": updated_meta.get("short_description", ""),
+        "seo_title": updated_meta.get("seo_title", ""),
+        "seo_description": updated_meta.get("seo_description", ""),
+        "img_url": updated_meta.get("img_url", ""),
+        "status": "published",
+        "lang": updated_meta.get("lang", "en-US"),
+        "internal_meta": {
+            "provider": existing_record.get("internal_meta", {}).get("provider", "novita"),
+            "model": existing_record.get("internal_meta", {}).get("model", ""),
+            "published_at": datetime.now(timezone.utc).isoformat(),
+            "spaces_object_key": object_key,
+            "local_article_dir": str(article_dir).replace("\\", "/"),
+        },
+    }
+
+    write_json_file(article_record_path, updated_record)
+
+
+def validate_meta(meta: dict) -> list[str]:
+    """
+    Базовая проверка article_meta.json.
+    """
+    errors = []
+
+    required_fields = [
+        "title",
+        "url_slug",
+        "short_description",
+        "seo_title",
+        "seo_description",
+        "lang",
+    ]
+
+    for field in required_fields:
+        if not str(meta.get(field, "")).strip():
+            errors.append(f"Отсутствует обязательное поле meta: {field}")
+
+    return errors
+
+
+def validate_article_inputs(article_dir: Path, meta: dict, mdx_content: str) -> list[str]:
+    """
+    Комплексная проверка перед публикацией.
+    """
+    errors = []
+
+    errors.extend(validate_meta(meta))
+
+    slug = str(meta.get("url_slug", "")).strip()
+    folder_slug = article_dir.name.strip()
+
+    if not folder_slug:
+        errors.append("Имя папки статьи пустое.")
+
+    if not slug:
+        errors.append("В article_meta.json отсутствует url_slug.")
+
+    if slug and folder_slug and slug != folder_slug:
+        errors.append(
+            f"Slug в meta не совпадает с именем папки статьи: meta='{slug}', folder='{folder_slug}'"
+        )
+
+    if mdx_content is None or not mdx_content.strip():
+        errors.append("Файл article.mdx пустой или не прочитан.")
+
+    return errors
+
+
+def publish_latest_article() -> None:
+    latest_meta_path = find_latest_article_meta(BASE_OUTPUT_DIR)
+    if latest_meta_path is None:
+        print("Не найден ни один article_meta.json.")
+        return
+
+    article_dir = latest_meta_path.parent
+    article_meta_path = article_dir / ARTICLE_META_FILENAME
+    article_mdx_path = article_dir / ARTICLE_MDX_FILENAME
+
+    print(f"Найдена последняя статья: {article_dir}")
+
+    meta = load_json_file(article_meta_path)
+    if meta is None:
+        print("Не удалось загрузить article_meta.json.")
+        return
+
+    mdx_content = read_text_file(article_mdx_path)
+    if mdx_content is None:
+        print("Не удалось прочитать article.mdx.")
+        return
+
+    validation_errors = validate_article_inputs(article_dir, meta, mdx_content)
+    if validation_errors:
+        print("Невозможно опубликовать статью. Ошибки:")
+        for err in validation_errors:
+            print(f"- {err}")
+        return
+
+    slug = str(meta["url_slug"]).strip()
+
+    existing_doc = get_existing_article_by_slug(slug)
+    if existing_doc:
+        print("Статья с таким slug уже существует в MongoDB.")
+        print(f"Slug: {slug}")
+        print(f"Title: {existing_doc.get('title')}")
+        print(f"Status: {existing_doc.get('status')}")
+        print(f"Content URL: {existing_doc.get('content_url')}")
+        return
+
+    try:
+        object_key = build_spaces_object_key(article_dir)
+    except ValueError as e:
+        print(f"Ошибка построения object_key: {e}")
+        return
+
+    upload_result = upload_article_mdx_to_spaces(
+        mdx_content=mdx_content,
+        object_key=object_key,
+    )
+    if upload_result is None:
+        print("Публикация остановлена: не удалось загрузить файл в Spaces.")
+        return
+
+    content_url = upload_result["cdn_url"]
+    mongo_document = build_article_document(meta=meta, content_url=content_url)
+
+    inserted = insert_article_to_mongo(mongo_document)
+    if not inserted:
+        print("Mongo insert не удался. Пытаюсь выполнить rollback: удалить загруженный MDX из Spaces.")
+        delete_object_from_spaces(object_key)
+        print("Публикация остановлена.")
+        return
+
+    update_local_article_files(
+        article_dir=article_dir,
+        meta=meta,
+        content_url=content_url,
+        object_key=object_key,
+    )
+
+    print()
+    print("Публикация завершена успешно.")
+    print(f"Slug: {slug}")
+    print(f"Local article dir: {article_dir}")
+    print(f"Spaces object key: {object_key}")
+    print(f"Content URL: {content_url}")
+
+
+if __name__ == "__main__":
+    publish_latest_article()
+
+
+================================================================================
+ФАЙЛ: ../image_creation/generate_image_ai.py
+================================================================================
+import json
+import os
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+import requests
+
+from config import novita
+
+TOPIC_FILE = "../generated_articles/topic_generation/latest_topic.json"
+OUTPUT_BASE_DIR = Path("../image_creation")
+
+# Novita documented async endpoint for Flux 2 Dev
+CREATE_TASK_URL = "https://api.novita.ai/v3/async/flux-2-dev"
+TASK_RESULT_URL = "https://api.novita.ai/v3/async/task-result"
+
+# Generation settings
+DEFAULT_SIZE = "1280*720"   # Novita async image APIs use width*height format
+DEFAULT_SEED = -1
+POLL_INTERVAL_SECONDS = 3
+POLL_TIMEOUT_SECONDS = 180
+
+# One fixed prompt pair for stable testing
+POSITIVE_PROMPT = (
+    "Premium business-tech atmosphere, modern professional environment, subtle cinematic composition, "
+    "clean spacious scene, elegant lighting, refined depth, sophisticated startup mood, "
+    "abstract but not purely geometric, visually rich but restrained, premium editorial quality, "
+    "soft silhouettes of professionals allowed, subtle laptops allowed, no dominant central object, "
+    "no dramatic action, no busy office scene, no poster design, no ad layout, no headline composition."
+)
+
+NEGATIVE_PROMPT = (
+    "text, letters, words, numbers, typography, logo, watermark, brand name, signage, title, caption, "
+    "readable text, ui labels, dashboard text, analytics text, poster, advertisement, banner, "
+    "infographic, webpage mockup, app mockup, giant central object, clutter, crowded meeting room, "
+    "sharp tiny details, product ad, brochure style, stock photo handshake, exaggerated geometry"
+)
+
+
+def load_json_file(file_path: str) -> Optional[dict]:
+    if not os.path.exists(file_path):
+        print(f"Файл не найден: {file_path}")
+        return None
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Ошибка чтения JSON {file_path}: {e}")
+        return None
+
+
+def sanitize_slug(value: str) -> str:
+    value = (value or "").strip().lower()
+    allowed = []
+
+    for ch in value:
+        if ch.isalnum() or ch in "-_":
+            allowed.append(ch)
+        elif ch == " ":
+            allowed.append("-")
+
+    cleaned = "".join(allowed)
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+
+    cleaned = cleaned.strip("-_")
+    return cleaned or "untitled"
+
+
+def ensure_run_dir(slug: str) -> Path:
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+    run_dir = OUTPUT_BASE_DIR / f"{now_str}_{sanitize_slug(slug)}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir
+
+
+def save_text_file(file_path: Path, content: str) -> None:
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def save_json_file(file_path: Path, payload: dict) -> None:
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def download_file(url: str, output_path: Path) -> None:
+    response = requests.get(url, timeout=180)
+    response.raise_for_status()
+
+    with open(output_path, "wb") as f:
+        f.write(response.content)
+
+
+def get_topic_context(topic_payload: dict) -> dict:
+    topic_data = topic_payload.get("topic_data") or {}
+
+    return {
+        "title_candidate": (topic_data.get("title_candidate") or "").strip(),
+        "slug_candidate": (topic_data.get("slug_candidate") or "").strip(),
+        "primary_keyword": (topic_data.get("primary_keyword") or "").strip(),
+    }
+
+
+def build_request_payload(prompt: str, size: str, seed: int) -> dict:
+    """
+    Flux 2 Dev documented request body includes prompt, size, seed,
+    and optionally images / loras. We keep it minimal for text-to-image.
+    """
+    return {
+        "prompt": prompt,
+        "size": size,
+        "seed": seed,
+    }
+
+
+def get_headers(api_key: str) -> dict:
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+
+def create_generation_task(api_key: str, request_payload: dict) -> Optional[dict]:
+    try:
+        response = requests.post(
+            CREATE_TASK_URL,
+            headers=get_headers(api_key),
+            json=request_payload,
+            timeout=120,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.HTTPError as e:
+        print(f"HTTP ошибка при создании task: {e}")
+        try:
+            print(response.text)
+        except Exception:
+            pass
+        return None
+    except Exception as e:
+        print(f"Ошибка при создании task: {e}")
+        return None
+
+
+def get_task_result(api_key: str, task_id: str) -> Optional[dict]:
+    try:
+        response = requests.get(
+            TASK_RESULT_URL,
+            headers=get_headers(api_key),
+            params={"task_id": task_id},
+            timeout=120,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.HTTPError as e:
+        print(f"HTTP ошибка при получении результата task: {e}")
+        try:
+            print(response.text)
+        except Exception:
+            pass
+        return None
+    except Exception as e:
+        print(f"Ошибка при получении результата task: {e}")
+        return None
+
+
+def poll_until_done(api_key: str, task_id: str, timeout_seconds: int = POLL_TIMEOUT_SECONDS) -> Optional[dict]:
+    started_at = time.time()
+
+    while True:
+        if time.time() - started_at > timeout_seconds:
+            print("Таймаут ожидания результата генерации.")
+            return None
+
+        result = get_task_result(api_key, task_id)
+        if result is None:
+            return None
+
+        task = result.get("task", {})
+        status = task.get("status", "")
+
+        print(f"Task status: {status}")
+
+        if status == "TASK_STATUS_SUCCEED":
+            return result
+
+        if status == "TASK_STATUS_FAILED":
+            reason = task.get("reason", "")
+            print(f"Генерация завершилась с ошибкой. Reason: {reason}")
+            return result
+
+        time.sleep(POLL_INTERVAL_SECONDS)
+
+
+def save_images_from_result(result: dict, run_dir: Path) -> list[str]:
+    images = result.get("images", []) or []
+    saved_images = []
+
+    for i, image_info in enumerate(images, start=1):
+        image_url = image_info.get("image_url")
+        if not image_url:
+            continue
+
+        image_type = image_info.get("image_type", "jpeg").lower()
+        if image_type not in {"jpeg", "jpg", "png", "webp"}:
+            image_type = "jpg"
+
+        extension = "jpg" if image_type == "jpeg" else image_type
+        output_path = run_dir / f"image_{i}.{extension}"
+
+        download_file(image_url, output_path)
+        saved_images.append(str(output_path).replace("\\", "/"))
+
+    return saved_images
+
+
+def generate_cover_background() -> Optional[dict]:
+    topic_payload = load_json_file(TOPIC_FILE)
+    if topic_payload is None:
+        print("Не удалось загрузить latest_topic.json.")
+        return None
+
+    topic_meta = get_topic_context(topic_payload)
+    slug = topic_meta.get("slug_candidate") or "untitled"
+
+    api_key = str(novita.get("api_key", "")).strip()
+    model_name = str(novita.get("image_model", "")).strip()
+
+    if not api_key:
+        print("В config.novita отсутствует api_key.")
+        return None
+
+    if not model_name:
+        print("В config.novita отсутствует image_model.")
+        return None
+
+    run_dir = ensure_run_dir(slug)
+    OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Since flux-2-dev docs expose only prompt/size/seed clearly,
+    # we bake anti-text guidance into one merged prompt.
+    merged_prompt = f"{POSITIVE_PROMPT} Avoid any text, letters, words, logos, captions, readable interface text. Negative constraints: {NEGATIVE_PROMPT}"
+
+    request_payload = build_request_payload(
+        prompt=merged_prompt,
+        size=DEFAULT_SIZE,
+        seed=DEFAULT_SEED,
+    )
+
+    local_request_meta = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "provider": "novita",
+        "endpoint_url": CREATE_TASK_URL,
+        "task_result_url": TASK_RESULT_URL,
+        "model_from_config": model_name,
+        "topic_context": topic_meta,
+        "notes": {
+            "purpose": "raw cover background generation for article covers",
+            "topic_used_in_prompt": False,
+            "business_theme": True,
+            "text_forbidden": True,
+            "soft_silhouettes_allowed": True,
+            "laptops_allowed": True,
+        },
+        "positive_prompt": POSITIVE_PROMPT,
+        "negative_prompt": NEGATIVE_PROMPT,
+        "merged_prompt": merged_prompt,
+        "request_payload": request_payload,
+    }
+
+    save_text_file(run_dir / "positive_prompt.txt", POSITIVE_PROMPT)
+    save_text_file(run_dir / "negative_prompt.txt", NEGATIVE_PROMPT)
+    save_text_file(run_dir / "merged_prompt.txt", merged_prompt)
+    save_json_file(run_dir / "request.json", local_request_meta)
+
+    task_create_response = create_generation_task(api_key, request_payload)
+    if task_create_response is None:
+        print("Не удалось создать task генерации.")
+        return None
+
+    save_json_file(run_dir / "task_create_response.json", task_create_response)
+
+    task_id = task_create_response.get("task_id")
+    if not task_id:
+        print("В ответе нет task_id.")
+        print(json.dumps(task_create_response, ensure_ascii=False, indent=2))
+        return None
+
+    print(f"Создан task_id: {task_id}")
+
+    final_result = poll_until_done(api_key, task_id)
+    if final_result is None:
+        print("Не удалось получить финальный результат task.")
+        return None
+
+    save_json_file(run_dir / "response.json", final_result)
+
+    task_status = (final_result.get("task", {}) or {}).get("status", "")
+    if task_status != "TASK_STATUS_SUCCEED":
+        print("Task не завершился успешно.")
+        print(json.dumps(final_result, ensure_ascii=False, indent=2))
+        return None
+
+    saved_images = save_images_from_result(final_result, run_dir)
+    if not saved_images:
+        print("Картинки не были сохранены: images пустой или image_url отсутствует.")
+        return None
+
+    return {
+        "run_dir": str(run_dir).replace("\\", "/"),
+        "positive_prompt_file": str((run_dir / "positive_prompt.txt")).replace("\\", "/"),
+        "negative_prompt_file": str((run_dir / "negative_prompt.txt")).replace("\\", "/"),
+        "merged_prompt_file": str((run_dir / "merged_prompt.txt")).replace("\\", "/"),
+        "request_file": str((run_dir / "request.json")).replace("\\", "/"),
+        "task_create_response_file": str((run_dir / "task_create_response.json")).replace("\\", "/"),
+        "response_file": str((run_dir / "response.json")).replace("\\", "/"),
+        "images": saved_images,
+        "topic_context": topic_meta,
+        "used_model_from_config": model_name,
+        "used_size": DEFAULT_SIZE,
+        "used_seed": DEFAULT_SEED,
+        "task_id": task_id,
+    }
+
+
+def main():
+    result = generate_cover_background()
+
+    if result is None:
+        print("Генерация cover background не удалась.")
+        return
+
+    print("Cover background успешно сгенерирован и сохранен.")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+ФАЙЛ: ../image_creation/make_final_cover.py
+================================================================================
+import json
+import textwrap
+from pathlib import Path
+from typing import Optional
+
+from PIL import Image, ImageDraw, ImageFont
+
+TOPIC_FILE = Path("../generated_articles/topic_generation/latest_topic.json")
+IMAGE_CREATION_DIR = Path("../image_creation")
+LOGO_FILE = Path("crino_logo/logo_1_variant.png")
+
+OUTPUT_FILENAME = "final_cover.webp"
+
+FINAL_WIDTH = 2400
+FINAL_HEIGHT = 1256
+
+# Затемнение фона
+DARK_OVERLAY_OPACITY = 0.10
+
+# Логотип
+LOGO_MAX_WIDTH = 220
+LOGO_TOP_MARGIN = 150
+
+# Заголовок
+TITLE_MAX_WIDTH_RATIO = 0.3
+TITLE_COLOR = (255, 255, 255, 255)
+TITLE_CENTER_Y_RATIO = 0.60
+TITLE_LINE_SPACING = 30
+
+# Подложка под текст
+TITLE_BOX_HORIZONTAL_PADDING = 50
+TITLE_BOX_VERTICAL_PADDING = 35
+TITLE_BOX_RADIUS = 26
+TITLE_BOX_FILL = (0, 0, 0, 50)
+
+# Настройки WebP
+# 80-86 обычно дает очень хороший баланс.
+WEBP_QUALITY = 84
+WEBP_METHOD = 6
+
+FONT_CANDIDATES = [
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+]
+
+
+def load_json_file(file_path: Path) -> Optional[dict]:
+    if not file_path.exists():
+        print(f"Файл не найден: {file_path}")
+        return None
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Ошибка чтения JSON {file_path}: {e}")
+        return None
+
+
+def get_latest_run_dir(base_dir: Path) -> Optional[Path]:
+    if not base_dir.exists():
+        print(f"Папка не найдена: {base_dir}")
+        return None
+
+    subdirs = [p for p in base_dir.iterdir() if p.is_dir()]
+    if not subdirs:
+        print(f"В папке {base_dir} нет подпапок.")
+        return None
+
+    return max(subdirs, key=lambda p: p.stat().st_mtime)
+
+
+def find_generated_image(run_dir: Path) -> Optional[Path]:
+    preferred_names = [
+        "image_1.png",
+        "image_1.jpg",
+        "image_1.jpeg",
+        "image_1.webp",
+    ]
+
+    for name in preferred_names:
+        path = run_dir / name
+        if path.exists():
+            return path
+
+    candidates = []
+    for ext in ("*.png", "*.jpg", "*.jpeg", "*.webp"):
+        candidates.extend(run_dir.glob(ext))
+
+    if not candidates:
+        print(f"В папке {run_dir} не найдено ни одной картинки.")
+        return None
+
+    return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+
+
+def get_article_title(topic_payload: dict) -> str:
+    topic_data = topic_payload.get("topic_data") or {}
+
+    title = (topic_data.get("title_candidate") or "").strip()
+    if title:
+        return title
+
+    slug = (topic_data.get("slug_candidate") or "").strip()
+    if slug:
+        return slug.replace("-", " ").replace("_", " ").title()
+
+    return "Untitled Article"
+
+
+def pick_font_path() -> Optional[str]:
+    for path in FONT_CANDIDATES:
+        if Path(path).exists():
+            return path
+    return None
+
+
+def open_rgba(image_path: Path) -> Image.Image:
+    return Image.open(image_path).convert("RGBA")
+
+
+def resize_cover(image: Image.Image, target_width: int, target_height: int) -> Image.Image:
+    src_w, src_h = image.size
+    src_ratio = src_w / src_h
+    target_ratio = target_width / target_height
+
+    if src_ratio > target_ratio:
+        new_h = target_height
+        new_w = int(new_h * src_ratio)
+    else:
+        new_w = target_width
+        new_h = int(new_w / src_ratio)
+
+    resized = image.resize((new_w, new_h), Image.LANCZOS)
+
+    left = (new_w - target_width) // 2
+    top = (new_h - target_height) // 2
+    right = left + target_width
+    bottom = top + target_height
+
+    return resized.crop((left, top, right, bottom))
+
+
+def apply_dark_overlay(base: Image.Image, opacity: float) -> Image.Image:
+    alpha = max(0, min(255, int(255 * opacity)))
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, alpha))
+    return Image.alpha_composite(base, overlay)
+
+
+def paste_logo(canvas: Image.Image, logo_path: Path) -> None:
+    if not logo_path.exists():
+        print(f"Логотип не найден: {logo_path}")
+        return
+
+    logo = open_rgba(logo_path)
+
+    logo_w, logo_h = logo.size
+    scale = min(0.6, LOGO_MAX_WIDTH / logo_w)
+
+    new_w = int(logo_w * scale)
+    new_h = int(logo_h * scale)
+
+    logo = logo.resize((new_w, new_h), Image.LANCZOS)
+
+    x = (canvas.width - new_w) // 2
+    y = LOGO_TOP_MARGIN
+
+    canvas.alpha_composite(logo, (x, y))
+
+
+def draw_title_box(
+    canvas: Image.Image,
+    x: int,
+    y: int,
+    text_width: int,
+    text_height: int,
+) -> None:
+    draw = ImageDraw.Draw(canvas, "RGBA")
+
+    left = x - TITLE_BOX_HORIZONTAL_PADDING
+    top = y - TITLE_BOX_VERTICAL_PADDING
+    right = x + text_width + TITLE_BOX_HORIZONTAL_PADDING
+    bottom = y + text_height + TITLE_BOX_VERTICAL_PADDING
+
+    draw.rounded_rectangle(
+        [(left, top), (right, bottom)],
+        radius=TITLE_BOX_RADIUS,
+        fill=TITLE_BOX_FILL,
+    )
+
+
+def measure_multiline_text(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font,
+    spacing: int,
+):
+    bbox = draw.multiline_textbbox(
+        (0, 0),
+        text,
+        font=font,
+        spacing=spacing,
+        align="center",
+    )
+    width = bbox[2] - bbox[0]
+    height = bbox[3] - bbox[1]
+    return width, height, bbox
+
+
+def wrap_title_by_width(
+    draw: ImageDraw.ImageDraw,
+    title: str,
+    font,
+    max_width: int,
+) -> str:
+    words = title.split()
+    if not words:
+        return title
+
+    current_lines = []
+    current_line = words[0]
+
+    for word in words[1:]:
+        test_line = f"{current_line} {word}"
+        bbox = draw.textbbox((0, 0), test_line, font=font)
+        line_width = bbox[2] - bbox[0]
+
+        if line_width <= max_width:
+            current_line = test_line
+        else:
+            current_lines.append(current_line)
+            current_line = word
+
+    current_lines.append(current_line)
+    return "\n".join(current_lines)
+
+
+def fit_title_text(draw: ImageDraw.ImageDraw, title: str, canvas_width: int):
+    font_path = pick_font_path()
+    max_text_width = int(canvas_width * TITLE_MAX_WIDTH_RATIO)
+
+    for font_size in range(150, 55, -2):
+        if font_path:
+            font = ImageFont.truetype(font_path, font_size)
+        else:
+            font = ImageFont.load_default()
+
+        wrapped = wrap_title_by_width(draw, title, font, max_text_width)
+        text_width, text_height, _ = measure_multiline_text(
+            draw=draw,
+            text=wrapped,
+            font=font,
+            spacing=TITLE_LINE_SPACING,
+        )
+
+        max_allowed_height = int(FINAL_HEIGHT * 0.35)
+        if text_width <= max_text_width and text_height <= max_allowed_height:
+            return wrapped, font, text_width, text_height
+
+    if font_path:
+        fallback_font = ImageFont.truetype(font_path, 60)
+    else:
+        fallback_font = ImageFont.load_default()
+
+    wrapped = textwrap.fill(title, width=18)
+    text_width, text_height, _ = measure_multiline_text(
+        draw=draw,
+        text=wrapped,
+        font=fallback_font,
+        spacing=TITLE_LINE_SPACING,
+    )
+    return wrapped, fallback_font, text_width, text_height
+
+
+def draw_title(canvas: Image.Image, title: str) -> None:
+    draw = ImageDraw.Draw(canvas)
+
+    wrapped_title, font, text_width, text_height = fit_title_text(
+        draw=draw,
+        title=title,
+        canvas_width=canvas.width,
+    )
+
+    x = (canvas.width - text_width) // 2
+    y = int(canvas.height * TITLE_CENTER_Y_RATIO - text_height / 2)
+
+    draw_title_box(
+        canvas=canvas,
+        x=x,
+        y=y,
+        text_width=text_width,
+        text_height=text_height,
+    )
+
+    draw.multiline_text(
+        (x, y),
+        wrapped_title,
+        font=font,
+        fill=TITLE_COLOR,
+        align="center",
+        spacing=TITLE_LINE_SPACING,
+    )
+
+
+def cleanup_old_outputs(run_dir: Path) -> None:
+    old_files = [
+        run_dir / "final_cover.png",
+        run_dir / "final_cover.jpg",
+        run_dir / "final_cover.jpeg",
+        run_dir / "final_cover.webp",
+    ]
+
+    for file_path in old_files:
+        if file_path.exists():
+            try:
+                file_path.unlink()
+            except Exception as e:
+                print(f"Не удалось удалить старый файл {file_path}: {e}")
+
+
+def save_final_cover_webp(image: Image.Image, output_path: Path) -> None:
+    # WebP лучше сохранять из RGB, если прозрачность в финале не нужна
+    image_rgb = image.convert("RGB")
+
+    image_rgb.save(
+        output_path,
+        format="WEBP",
+        quality=WEBP_QUALITY,
+        method=WEBP_METHOD,
+        optimize=True,
+    )
+
+
+def create_final_cover():
+    latest_dir = get_latest_run_dir(IMAGE_CREATION_DIR)
+    if latest_dir is None:
+        return None
+
+    print(f"Найдена последняя папка: {latest_dir}")
+
+    source_image_path = find_generated_image(latest_dir)
+    if source_image_path is None:
+        return None
+
+    print(f"Найдена исходная картинка: {source_image_path}")
+
+    topic_payload = load_json_file(TOPIC_FILE)
+    if topic_payload is None:
+        return None
+
+    title = get_article_title(topic_payload)
+    print(f"Заголовок статьи: {title}")
+
+    background = open_rgba(source_image_path)
+    background = resize_cover(background, FINAL_WIDTH, FINAL_HEIGHT)
+    background = apply_dark_overlay(background, DARK_OVERLAY_OPACITY)
+
+    paste_logo(background, LOGO_FILE)
+    draw_title(background, title)
+
+    cleanup_old_outputs(latest_dir)
+
+    output_path = latest_dir / OUTPUT_FILENAME
+    save_final_cover_webp(background, output_path)
+
+    try:
+        file_size_kb = round(output_path.stat().st_size / 1024, 2)
+    except Exception:
+        file_size_kb = None
+
+    result = {
+        "latest_dir": str(latest_dir).replace("\\", "/"),
+        "source_image": str(source_image_path).replace("\\", "/"),
+        "output_image": str(output_path).replace("\\", "/"),
+        "title": title,
+        "size": f"{FINAL_WIDTH}x{FINAL_HEIGHT}",
+        "dark_overlay_opacity": DARK_OVERLAY_OPACITY,
+        "logo_file": str(LOGO_FILE).replace("\\", "/"),
+        "output_format": "WEBP",
+        "webp_quality": WEBP_QUALITY,
+        "webp_method": WEBP_METHOD,
+        "file_size_kb": file_size_kb,
+    }
+
+    print("Финальный cover создан:")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return result
+
+
+def main():
+    create_final_cover()
+
+
+if __name__ == "__main__":
+    main()
+

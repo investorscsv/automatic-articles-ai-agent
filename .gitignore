@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.venv/
+venv/
+env/
+
+.idea/
+.DS_Store
+.env
+*.log
+
+# Generated content
+generated_articles/source_data/
+generated_articles/topic_generation/
+image_creation/*/request.json
+image_creation/*/response.json
+image_creation/*/task_create_response.json
+image_creation/*/merged_prompt.txt
+image_creation/*/negative_prompt.txt
+image_creation/*/positive_prompt.txt
+image_creation/*/image_1.jpg
+image_creation/*/final_cover.webp
