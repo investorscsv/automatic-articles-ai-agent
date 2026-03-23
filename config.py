@@ -1,24 +1,39 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def get_env(name: str, default: str | None = None, required: bool = False) -> str | None:
+    value = os.getenv(name, default)
+    if required and not value:
+        raise ValueError(f"Environment variable '{name}' is required but not set")
+    return value
+
+
 mongo_db = {
-    "server": "inv.hbzsnwm.mongodb.net",
+    "server": get_env("MONGO_SERVER", required=True),
     "database_investors": "investors",
     "database_deals": "deals",
     "database_blog": "blog",
-    "login": "inv",
-    "password": "21v3k04DX47laUZm",
+    "login": get_env("MONGO_LOGIN", "inv"),
+    "password": get_env("MONGO_PASSWORD", required=True),
     "collection_investors": "investors",
     "collection_deals": "deals",
-    "collection_articles": "articles-cdn"
+    "collection_articles": "articles-cdn",
 }
+
 spaces = {
     "region": "nyc3",
     "bucket": "crino-cdn",
-    "key": "DO80192FBW4769UF3LME",
-    "secret": "1J79aD3cC84Na6dOOLl9YLUQf70j7Fn/P+RKn9vT+NM",
-    "endpoint": "https://nyc3.digitaloceanspaces.com"
+    "key": get_env("SPACES_KEY", required=True),
+    "secret": get_env("SPACES_SECRET", required=True),
+    "endpoint": "https://nyc3.digitaloceanspaces.com",
 }
+
 novita = {
-    "api_key": "sk_UtyuB3Q0_wEnTVH6Gf2XdhU0igmbetTUJNDTVqKbi8I",
+    "api_key": get_env("NOVITA_API_KEY", required=True),
     "base_url": "https://api.novita.ai/openai",
     "model": "deepseek/deepseek-v3.2",
-    "image_model": "flux-2-dev"
+    "image_model": "flux-2-dev",
 }
