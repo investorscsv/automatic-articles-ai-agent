@@ -1,0 +1,137 @@
+{
+  "status": "published",
+  "created_at": "2026-03-25T13:41:07.871997+00:00",
+  "updated_at": "2026-03-25T13:48:13.147984+00:00",
+  "existing_articles_count": 52,
+  "snapshot_path": "generated_articles/source_data/existing_articles.json",
+  "topic_attempts": [
+    {
+      "generated_at": "2026-03-25T13:41:28.978016+00:00",
+      "topic_data": {
+        "title_candidate": "How to Find and Approach Corporate Venture Capital (CVC) Investors in 2025",
+        "slug_candidate": "find-approach-corporate-venture-capital-investors-2025",
+        "reasoning_summary": "This topic fills a clear gap in the existing content, which lacks a focused guide on Corporate Venture Capital (CVC). CVC is a major and growing source of startup funding, but founders often don't know how to access it strategically. The article will be practical, covering how to identify relevant CVCs, understand their strategic goals, and tailor an approach that goes beyond just financials to highlight partnership value. It's specific, actionable, and addresses a high-intent search need for founders seeking strategic capital.",
+        "short_description_candidate": "A tactical guide to identifying, understanding, and successfully pitching to corporate venture capital (CVC) investors. Learn how to align your startup with a corporate's strategic goals to secure more than just capital.",
+        "search_intent": "Founders actively looking for corporate venture capital investors, wanting to understand how CVC differs from traditional VC, and seeking a step-by-step process to find and approach the right CVC partners.",
+        "target_audience": "Startup founders (Seed to Series B) in sectors like tech, healthcare, cleantech, and fintech who are seeking strategic investors that offer capital, market access, distribution, and industry expertise.",
+        "primary_keyword": "corporate venture capital",
+        "secondary_keywords": [
+          "how to approach CVC",
+          "corporate VC investors",
+          "strategic investor funding"
+        ],
+        "seo_angle": "Position as the definitive 2025 guide to unlocking corporate venture capital, focusing on the unique 'strategic fit' required to secure this type of funding versus traditional VC.",
+        "seo_title_candidate": "Corporate Venture Capital Guide 2025: How to Find & Pitch CVC Investors",
+        "seo_description_candidate": "Master the art of securing corporate venture capital. Our 2025 guide shows founders how to identify strategic CVCs, decode their investment thesis, and craft a partnership-focused pitch that wins funding."
+      }
+    },
+    {
+      "generated_at": "2026-03-25T13:42:15.216984+00:00",
+      "topic_data": {
+        "title_candidate": "The Founder's Guide to Investor Updates: How to Communicate Progress, Build Trust, and Secure Follow-On Funding",
+        "slug_candidate": "founders-guide-investor-updates-build-trust-secure-follow-on-funding",
+        "reasoning_summary": "This topic fills a critical gap not covered by existing articles: ongoing communication with investors post-investment. It is highly practical for founders, addresses a common pain point (managing investor relationships), and has strong search intent for 'investor updates' and 'follow-on funding'. It is specific, actionable, and naturally fits the editorial style of tactical fundraising guides.",
+        "short_description_candidate": "A tactical guide to crafting effective investor updates that build credibility, maintain engagement, and set the stage for your next funding round.",
+        "search_intent": "Founders seeking practical templates and strategies for communicating with current investors to report progress, manage expectations, and facilitate future fundraising.",
+        "target_audience": "Startup founders who have closed a seed or Series A round and need to manage existing investor relationships effectively to ensure support for growth and future rounds.",
+        "primary_keyword": "investor updates",
+        "secondary_keywords": [
+          "follow-on funding",
+          "investor communication",
+          "startup reporting"
+        ],
+        "seo_angle": "Position as the definitive, tactical guide to investor updates, focusing on the direct link between clear communication, trust-building, and securing future capital.",
+        "seo_title_candidate": "Investor Updates: A Founder's Guide to Build Trust & Secure Follow-On Funding",
+        "seo_description_candidate": "Master the art of investor updates. This guide provides templates, cadence, and strategies to communicate progress, build lasting trust with your cap table, and strategically pave the way for your next funding round."
+      }
+    }
+  ],
+  "approved_topic": {
+    "title_candidate": "The Founder's Guide to Investor Updates: How to Communicate Progress, Build Trust, and Secure Follow-On Funding",
+    "slug_candidate": "founders-guide-investor-updates-build-trust-secure-follow-on-funding",
+    "reasoning_summary": "This topic fills a critical gap not covered by existing articles: ongoing communication with investors post-investment. It is highly practical for founders, addresses a common pain point (managing investor relationships), and has strong search intent for 'investor updates' and 'follow-on funding'. It is specific, actionable, and naturally fits the editorial style of tactical fundraising guides.",
+    "short_description_candidate": "A tactical guide to crafting effective investor updates that build credibility, maintain engagement, and set the stage for your next funding round.",
+    "search_intent": "Founders seeking practical templates and strategies for communicating with current investors to report progress, manage expectations, and facilitate future fundraising.",
+    "target_audience": "Startup founders who have closed a seed or Series A round and need to manage existing investor relationships effectively to ensure support for growth and future rounds.",
+    "primary_keyword": "investor updates",
+    "secondary_keywords": [
+      "follow-on funding",
+      "investor communication",
+      "startup reporting"
+    ],
+    "seo_angle": "Position as the definitive, tactical guide to investor updates, focusing on the direct link between clear communication, trust-building, and securing future capital.",
+    "seo_title_candidate": "Investor Updates: A Founder's Guide to Build Trust & Secure Follow-On Funding",
+    "seo_description_candidate": "Master the art of investor updates. This guide provides templates, cadence, and strategies to communicate progress, build lasting trust with your cap table, and strategically pave the way for your next funding round."
+  },
+  "seo_data": {
+    "seo_title": "Investor Updates: A Founder's Guide to Build Trust & Secure Follow-On Funding",
+    "seo_description": "Master the art of investor updates. This guide provides templates, cadence, and strategies to communicate progress, build lasting trust with your cap table, and strategically pave the way for your next funding round.",
+    "short_description": "A tactical guide to crafting effective investor updates that build credibility, maintain engagement, and set the stage for your next funding round.",
+    "primary_keyword": "investor updates",
+    "secondary_keywords": [
+      "follow-on funding",
+      "investor communication",
+      "startup reporting"
+    ]
+  },
+  "article": {
+    "status": "approved",
+    "generated_at": "2026-03-25T13:43:46.702164+00:00",
+    "body_path": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/article.mdx",
+    "article_dir": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding",
+    "meta_path": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/article_meta.json",
+    "record_path": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/article_record.json",
+    "validation_errors": []
+  },
+  "image": {
+    "status": "approved",
+    "generated_at": "2026-03-25T13:45:11.750189+00:00",
+    "raw_generation": {
+      "run_dir": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/images/attempt_20260325_134346/raw",
+      "images": [
+        "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/images/attempt_20260325_134346/raw/image_1.jpg"
+      ],
+      "topic_context": {
+        "title_candidate": "The Founder's Guide to Investor Updates: How to Communicate Progress, Build Trust, and Secure Follow-On Funding",
+        "slug_candidate": "founders-guide-investor-updates-build-trust-secure-follow-on-funding",
+        "primary_keyword": "investor updates"
+      },
+      "used_model_from_config": "flux-2-dev",
+      "used_size": "1280*720",
+      "used_seed": -1,
+      "task_id": "75a72cec-1cfb-418d-b926-67d55f26946a"
+    },
+    "attempt_cover": {
+      "output_webp": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/images/attempt_20260325_134346/final_cover.webp",
+      "output_png": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/images/attempt_20260325_134346/final_cover.png",
+      "source_image": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/images/attempt_20260325_134346/raw/image_1.jpg",
+      "title": "The Founder's Guide to Investor Updates: How to Communicate Progress, Build Trust, and Secure Follow-On Funding",
+      "size": "2400x1256",
+      "output_formats": [
+        "webp",
+        "png"
+      ],
+      "webp_quality": 84,
+      "webp_method": 6
+    },
+    "approved_local_files": {
+      "webp": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/images/final_cover.webp",
+      "png": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/images/final_cover.png"
+    },
+    "selected_upload_format": "webp"
+  },
+  "publish": {
+    "status": "published",
+    "result": {
+      "status": "published",
+      "slug": "founders-guide-investor-updates-build-trust-secure-follow-on-funding",
+      "content_url": "https://crino-cdn.nyc3.cdn.digitaloceanspaces.com/blog-articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/index.mdx",
+      "image_url": "https://crino-cdn.nyc3.cdn.digitaloceanspaces.com/blog-articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/cover.webp",
+      "object_key": "blog-articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/index.mdx",
+      "image_object_key": "blog-articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding/cover.webp",
+      "image_format": "webp",
+      "article_dir": "generated_articles/en/founders-guide-investor-updates-build-trust-secure-follow-on-funding"
+    },
+    "decided_at": "2026-03-25T13:48:13.147954+00:00"
+  }
+}

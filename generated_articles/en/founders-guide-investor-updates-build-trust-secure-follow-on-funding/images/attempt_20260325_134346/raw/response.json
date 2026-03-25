@@ -1,0 +1,24 @@
+{
+  "extra": {
+    "enable_nsfw_detection": false,
+    "has_nsfw_contents": []
+  },
+  "task": {
+    "task_id": "75a72cec-1cfb-418d-b926-67d55f26946a",
+    "task_type": "FLUX_2_DEV_TXT_TO_IMG",
+    "status": "TASK_STATUS_SUCCEED",
+    "reason": "",
+    "eta": 0,
+    "progress_percent": 0
+  },
+  "images": [
+    {
+      "image_url": "https://faas-output-image.s3.ap-southeast-1.amazonaws.com/prod/75a72cec-1cfb-418d-b926-67d55f26946a-a7c8e1f9-f2c3-4489-8334-d8e098990c98.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIASVPYCN6LRCW3SOUV%2F20260325%2Fap-southeast-1%2Fs3%2Faws4_request&X-Amz-Date=20260325T133936Z&X-Amz-Expires=172800&X-Amz-SignedHeaders=host&x-id=GetObject&X-Amz-Signature=d12f2d06870646a1c5d537b892798e65f3516d1c5dbfd160910b65610f0ed831",
+      "image_url_ttl": "172800",
+      "image_type": "jpeg",
+      "nsfw_detection_result": null
+    }
+  ],
+  "videos": [],
+  "audios": []
+}
