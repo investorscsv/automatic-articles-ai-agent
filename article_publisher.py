@@ -74,11 +74,11 @@ def build_spaces_object_key(article_dir: Path) -> str:
 
 def build_image_object_key(article_dir: Path, image_format: str) -> str:
     """Build the Spaces object key for the published article cover image."""
-    storage_lang_dir = article_dir.parent.name.strip()
-    slug = article_dir.name.strip()
     if image_format not in SUPPORTED_IMAGE_FORMATS:
         raise ValueError(f"Unsupported image format: {image_format}")
-    return f"blog-articles/{storage_lang_dir}/{slug}/cover.{image_format}"
+    mdx_object_key = build_spaces_object_key(article_dir)
+    article_prefix = mdx_object_key.rsplit("/", 1)[0]
+    return f"{article_prefix}/cover.{image_format}"
 
 
 def build_public_urls(object_key: str) -> dict:

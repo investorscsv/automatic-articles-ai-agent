@@ -263,12 +263,13 @@ def sync_image_metadata(article_dir: Path, approved_images: dict, selected_uploa
     """Write approved local image data into article metadata files."""
     meta_path = article_dir / "article_meta.json"
     record_path = article_dir / "article_record.json"
-    img_url_placeholder = approved_images.get("webp") or approved_images.get("png") or ""
     for path in [meta_path, record_path]:
         if not path.exists():
             continue
         payload = json.loads(path.read_text(encoding="utf-8"))
-        payload["img_url"] = img_url_placeholder
+        current_img_url = str(payload.get("img_url", "")).strip()
+        if not current_img_url.startswith(("http://", "https://")):
+            payload["img_url"] = ""
         payload["local_image_paths"] = approved_images
         if selected_upload_format:
             payload["selected_upload_format"] = selected_upload_format
